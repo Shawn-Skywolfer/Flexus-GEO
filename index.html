@@ -95,7 +95,8 @@
             AlertTriangle: <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
             Download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
             Save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></>,
-            Upload: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>
+            Upload: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>,
+            Database: <><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></>
         };
 
         const Icon = ({ name, size = 18, className }) => {
@@ -380,13 +381,17 @@
             const [showStyleModal, setShowStyleModal] = useState(false);
             const [editingStyle, setEditingStyle] = useState({ key: "", originalKey: "", desc: "", isNew: false });
 
+            // 可信数据来源 (NEW)
+            const [trustedData, setTrustedData] = useState("");
+
             // 任务输入状态
             const [taskParams, setTaskParams] = useState({
                 platform: "SMZDM", 
                 focus: "通用",
                 wordCount: 1500,
                 competitors: "阿里云百炼, 腾讯云TI, 字节扣子",
-                customRequirement: ""
+                customRequirement: "",
+                articleCount: 1 // NEW: Article count (1-3)
             });
 
             // 执行流程状态
@@ -395,14 +400,15 @@
             const [planStatus, setPlanStatus] = useState(""); 
             const [generatedPlan, setGeneratedPlan] = useState("");
             const [searchResults, setSearchResults] = useState([]); 
-            const [finalArticle, setFinalArticle] = useState("");
+            const [finalArticles, setFinalArticles] = useState([]); // Changed to array
+            const [currentArticleIndex, setCurrentArticleIndex] = useState(0); // For tab switching
             const [isLoading, setIsLoading] = useState(false);
             // 新增：执行步骤追踪
             const [execSteps, setExecSteps] = useState([
                 { id: 1, name: "提取关键词", status: "pending" }, // pending, running, done
                 { id: 2, name: "搜索数据", status: "pending" },
                 { id: 3, name: "分析结果", status: "pending" },
-                { id: 4, name: "撰写初稿", status: "pending" },
+                { id: 4, name: "撰写文章", status: "pending" },
                 { id: 5, name: "自检优化", status: "pending" }
             ]);
             
@@ -418,16 +424,17 @@
                 setLogs(prev => [...prev, { time: timestamp, msg, type }]);
             };
 
-            // 备份配置 (NEW)
+            // 备份配置
             const exportConfig = () => {
                 const config = {
-                    version: "1.0",
+                    version: "1.1",
                     timestamp: new Date().toISOString(),
                     apiConfig,
                     mcps,
                     coreProtocol,
                     styles,
-                    taskParams
+                    taskParams,
+                    trustedData // NEW
                 };
                 const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
                 const url = URL.createObjectURL(blob);
@@ -440,7 +447,7 @@
                 URL.revokeObjectURL(url);
             };
 
-            // 导入配置 (NEW)
+            // 导入配置
             const importConfig = (event) => {
                 const file = event.target.files[0];
                 if (!file) return;
@@ -453,6 +460,7 @@
                         if (config.coreProtocol) setCoreProtocol(config.coreProtocol);
                         if (config.styles) setStyles(config.styles);
                         if (config.taskParams) setTaskParams(config.taskParams);
+                        if (config.trustedData) setTrustedData(config.trustedData); // NEW
                         alert("配置导入成功！");
                     } catch (err) {
                         alert("配置文件格式错误");
@@ -462,14 +470,15 @@
                 event.target.value = null; // reset
             };
 
-            // 下载文章 (NEW)
-            const downloadArticle = () => {
-                if (!finalArticle) return;
-                const blob = new Blob([finalArticle], { type: "text/plain" });
+            // 下载文章 (NEW: Download specific index)
+            const downloadArticle = (index) => {
+                const content = finalArticles[index];
+                if (!content) return;
+                const blob = new Blob([content], { type: "text/plain" });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `geo_article_${new Date().toISOString().slice(0,10)}.txt`;
+                a.download = `geo_article_${index + 1}_${new Date().toISOString().slice(0,10)}.txt`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -574,12 +583,15 @@ ${coreProtocol}
 【目标风格定义 (${taskParams.platform})】：
 ${currentStyleDef}
 
+【可信数据来源 (用户指定权威数据)】：
+${trustedData || "无"}
+
 【当前可用工具】：
 ${toolDescriptions.length > 0 ? toolDescriptions.join('\n') : "无 (依赖内部知识)"}
 
-请输出Markdown格式的计划。`;
+请输出Markdown格式的计划。如果【可信数据来源】中有内容，请务必在计划中包含对该数据的引用分析。`;
 
-                const userPrompt = `任务参数：平台-${taskParams.platform}, 字数-${taskParams.wordCount}, 竞品-${taskParams.competitors}, 侧重-${taskParams.focus}, 额外要求-${taskParams.customRequirement}`;
+                const userPrompt = `任务参数：平台-${taskParams.platform}, 字数-${taskParams.wordCount}, 竞品-${taskParams.competitors}, 侧重-${taskParams.focus}, 额外要求-${taskParams.customRequirement}, 数量-${taskParams.articleCount}篇`;
 
                 setPlanStatus("Waiting for AI Response...");
                 addLog("发送请求至 LLM...", "info");
@@ -602,8 +614,9 @@ ${toolDescriptions.length > 0 ? toolDescriptions.join('\n') : "无 (依赖内部
                 setIsLoading(true);
                 setMode("executing");
                 addLog("开始执行任务...");
-                // Reset Steps
                 setExecSteps(execSteps.map(s => ({ ...s, status: "pending" })));
+                setFinalArticles([]); // Clear previous results
+                setCurrentArticleIndex(0);
 
                 let searchContext = "";
                 
@@ -659,39 +672,50 @@ ${toolDescriptions.length > 0 ? toolDescriptions.join('\n') : "无 (依赖内部
 
                 // --- Step 3: 分析结果 ---
                 setExecSteps(prev => prev.map(s => s.id === 3 ? { ...s, status: "running" } : s));
-                await new Promise(r => setTimeout(r, 800)); // Simulate analysis time
+                await new Promise(r => setTimeout(r, 500)); 
                 setExecSteps(prev => prev.map(s => s.id === 3 ? { ...s, status: "done" } : s));
 
-                // --- Step 4: 撰写初稿 ---
+                // --- Step 4: 撰写文章 (Loop for Article Count) ---
                 setExecSteps(prev => prev.map(s => s.id === 4 ? { ...s, status: "running" } : s));
                 
                 const currentStyleDef = styles[taskParams.platform] || "通用风格";
-                const executionPrompt = `根据以下信息撰写文章。
+                const articles = [];
+
+                for (let i = 0; i < taskParams.articleCount; i++) {
+                    addLog(`正在生成第 ${i+1}/${taskParams.articleCount} 篇文章...`, "info");
+                    
+                    const executionPrompt = `根据以下信息撰写文章 (第 ${i+1} 篇，共 ${taskParams.articleCount} 篇)。
 【核心协议】：${coreProtocol}
 【风格定义 (${taskParams.platform})】：${currentStyleDef}
 【执行计划】：${generatedPlan}
+【可信数据来源 (必须优先引用)】：${trustedData || "无"}
 【外部数据】：${searchContext || "无外部数据，使用内部知识"}
 【参数】：平台-${taskParams.platform}, 字数-${taskParams.wordCount}, 侧重-${taskParams.focus}, 额外要求-${taskParams.customRequirement}
-要求：严禁禁词，口语化，真实感，严格遵循风格定义。`;
+要求：严禁禁词，口语化，真实感，严格遵循风格定义。
+${taskParams.articleCount > 1 ? "注意：请尝试与前几篇保持不同的切入点或案例，增加多样性。" : ""}
+`;
 
-                try {
-                    const article = await callLLM([{ role: "user", content: executionPrompt }], 0.7);
-                    setFinalArticle(article);
-                    setExecSteps(prev => prev.map(s => s.id === 4 ? { ...s, status: "done" } : s));
-                    
-                    // --- Step 5: 自检优化 ---
-                    setExecSteps(prev => prev.map(s => s.id === 5 ? { ...s, status: "running" } : s));
-                    addLog("正在进行最终自检...", "info");
-                    await new Promise(r => setTimeout(r, 1000)); // Simulate validation
-                    setExecSteps(prev => prev.map(s => s.id === 5 ? { ...s, status: "done" } : s));
-
-                    setMode("finished");
-                    addLog("文章生成完成！", "success");
-                } catch (e) {
-                    addLog("生成失败", "error");
-                } finally {
-                    setIsLoading(false);
+                    try {
+                        const article = await callLLM([{ role: "user", content: executionPrompt }], 0.7 + (i * 0.1)); // Increase temp slightly for variation
+                        articles.push(article);
+                        // Update state progressively so user sees something happening
+                        setFinalArticles(prev => [...prev, article]);
+                    } catch (e) {
+                        addLog(`第 ${i+1} 篇生成失败: ${e.message}`, "error");
+                    }
                 }
+                
+                setExecSteps(prev => prev.map(s => s.id === 4 ? { ...s, status: "done" } : s));
+                
+                // --- Step 5: 自检优化 ---
+                setExecSteps(prev => prev.map(s => s.id === 5 ? { ...s, status: "running" } : s));
+                addLog("正在进行最终自检...", "info");
+                await new Promise(r => setTimeout(r, 800)); 
+                setExecSteps(prev => prev.map(s => s.id === 5 ? { ...s, status: "done" } : s));
+
+                setMode("finished");
+                addLog("所有文章生成完成！", "success");
+                setIsLoading(false);
             };
 
             // --- MCP 管理逻辑 ---
@@ -803,6 +827,19 @@ ${toolDescriptions.length > 0 ? toolDescriptions.join('\n') : "无 (依赖内部
                                 </div>
                             </section>
                             <hr className="border-gray-100"/>
+                            {/* Trusted Data Source (NEW) */}
+                            <section>
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Icon name="Database" size={16}/> 可信数据来源</h3>
+                                </div>
+                                <textarea
+                                    value={trustedData}
+                                    onChange={(e) => setTrustedData(e.target.value)}
+                                    className="w-full h-24 border rounded p-2 text-xs resize-none focus:outline-none focus:border-blue-500"
+                                    placeholder="在此输入权威数据、报告摘要或关键事实。AI在生成时将优先引用相关内容。"
+                                />
+                            </section>
+                            <hr className="border-gray-100"/>
                             {/* 规则 */}
                             <section>
                                 <div className="flex justify-between items-center mb-3">
@@ -879,6 +916,19 @@ ${toolDescriptions.length > 0 ? toolDescriptions.join('\n') : "无 (依赖内部
                                             <label className="block text-xs text-gray-500 mb-1">额外要求</label>
                                             <input type="text" value={taskParams.customRequirement} onChange={e=>setTaskParams({...taskParams, customRequirement:e.target.value})} disabled={mode!=='idle'} className="w-full border rounded p-2 text-sm" placeholder="例如：多加一些制造业的案例..."/>
                                         </div>
+                                        {/* 新增: 文章生成数量 */}
+                                        <div>
+                                            <label className="block text-xs text-gray-500 mb-1">生成数量 (Max 3)</label>
+                                            <input 
+                                                type="number" 
+                                                min="1" 
+                                                max="3"
+                                                value={taskParams.articleCount} 
+                                                onChange={e=>setTaskParams({...taskParams, articleCount: Math.min(3, Math.max(1, parseInt(e.target.value) || 1))})} 
+                                                disabled={mode!=='idle'} 
+                                                className="w-full border rounded p-2 text-sm"
+                                            />
+                                        </div>
                                     </div>
                                     {mode === 'idle' && <button onClick={handleGeneratePlan} disabled={isLoading} className="mt-4 bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">生成计划</button>}
                                 </div>
@@ -892,7 +942,7 @@ ${toolDescriptions.length > 0 ? toolDescriptions.join('\n') : "无 (依赖内部
                                     </div>
                                 )}
 
-                                {/* 3. 结果 & 步骤追踪 (Updated) */}
+                                {/* 3. 结果 & 步骤追踪 */}
                                 {(mode === 'executing' || mode === 'finished') && (
                                     <div className="space-y-4 animate-fade-in">
                                         {/* 步骤追踪器 */}
@@ -923,14 +973,40 @@ ${toolDescriptions.length > 0 ? toolDescriptions.join('\n') : "无 (依赖内部
                                             {logs.map((l,i) => <div key={i} className={l.type==='error'?'text-red-400':l.type==='success'?'text-green-400':'text-gray-300'}>[{l.time}] {l.msg}</div>)}
                                             <div ref={logsEndRef}/>
                                         </div>
-                                        {finalArticle && (
-                                            <div className="bg-white rounded p-6 shadow markdown-body whitespace-pre-wrap relative group">
-                                                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button onClick={downloadArticle} className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded text-xs border border-gray-300">
-                                                        <Icon name="Download" size={14}/> 下载文章
+                                        
+                                        {/* 多文章展示与下载 */}
+                                        {finalArticles.length > 0 && (
+                                            <div className="bg-white rounded p-6 shadow relative group">
+                                                <div className="flex justify-between items-center mb-4 border-b pb-2">
+                                                    {/* Tabs */}
+                                                    <div className="flex gap-2">
+                                                        {finalArticles.map((_, idx) => (
+                                                            <button 
+                                                                key={idx}
+                                                                onClick={() => setCurrentArticleIndex(idx)}
+                                                                className={`px-3 py-1 text-xs rounded-t border-b-2 font-medium ${
+                                                                    currentArticleIndex === idx 
+                                                                    ? 'border-blue-500 text-blue-600 bg-blue-50' 
+                                                                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                                                                }`}
+                                                            >
+                                                                文章 {idx + 1}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                    
+                                                    {/* Download Button */}
+                                                    <button 
+                                                        onClick={() => downloadArticle(currentArticleIndex)} 
+                                                        className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded text-xs border border-gray-300"
+                                                    >
+                                                        <Icon name="Download" size={14}/> 下载当前文章
                                                     </button>
                                                 </div>
-                                                {finalArticle}
+                                                
+                                                <div className="markdown-body whitespace-pre-wrap">
+                                                    {finalArticles[currentArticleIndex]}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
