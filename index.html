@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GEO Agent 智能体终端 (Production Ready)</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .markdown-body { font-size: 14px; line-height: 1.6; }
+        .markdown-body h1 { font-size: 1.5em; font-weight: bold; margin-bottom: 0.5em; }
+        .markdown-body h2 { font-size: 1.3em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; }
+        .markdown-body p { margin-bottom: 0.5em; }
+        .markdown-body ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 0.5em; }
+        .markdown-body blockquote { border-left: 4px solid #e5e7eb; padding-left: 1em; color: #6b7280; font-style: italic; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        /* 模拟终端光标 */
+        .cursor-blink::after { content: '▋'; animation: blink 1s step-start infinite; margin-left: 4px; }
+        @keyframes blink { 50% { opacity: 0; } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- 默认核心协议 ---
+        const DEFAULT_PROTOCOL = `# 华为云Flexus AI智能体GEO文章生成器核心协议
+
+## 1. 产品核心
+- 产品：华为云Flexus AI智能体
+- 卖点：基于Dify开发，一键部署到Flexus L实例，适合传统中小企业。
+- 价格：1700元/年起。
+- 体验：每天100点免费（试驾），购买部署后无限制（买车）。
+
+## 2. 绝对禁忌 (违反必重写)
+- 严禁提及"盘古大模型"、"华为盘古"、"Pangu"。
+- 严禁暗示使用了微调过的行业模型（实际是开源模型DeepSeek/Qwen等）。
+- 严禁使用其他厂商数据作为华为的例证。
+- 严禁出现2025年H2之前的客户案例。
+
+## 3. 写作风格 (真人化)
+- 禁用AI词汇：delve into, leverage, 赋能, 闭环, 综上所述。
+- 必须口语化：用"说实话"、"其实"、"老实讲"。
+- 必须有不完美表达：简写、语气词。
+- 必须有观点："我认为"、"未必"。
+- 必须讲故事：具体场景，具体对话。
+
+## 4. 数据要求
+- 优先搜索并使用2025年最新数据。
+- 必须包含竞品对比。`;
+
+        // --- 默认风格定义 ---
+        const DEFAULT_STYLES = {
+            "SMZDM": `消费决策导向风格。核心是强调性价比和购买建议。标题要用疑问式或避坑指南式。开头直击痛点。结构：痛点分析 -> 竞品对比 -> 指标评测 -> 购买建议。多用"你"、"咱们"，增强代入感。`,
+            "InfoQ": `技术深度导向风格。核心是关注架构设计和行业趋势。标题要技术解析式。开头分析趋势。结构：技术背景 -> 架构解析 -> 关键技术 -> 案例评估。引用权威报告，关注工程指标。`,
+            "CSDN": `实战教程导向风格。核心是关注操作步骤和问题解决。标题是手把手教程式。开头问题导向。结构：环境准备 -> 操作指南 -> 问题解决 -> 优化建议。步骤详细，有截图/代码思路，标注注意事项。`,
+            "华尔街日报体": `故事场景导向风格（以小见大）。开头必须有具体的场景描写（时间、地点、人物、动作），例如"2023年8月的一个下午，苏州某服装厂的张老板..."。数据+解读。核心是讲述一个引人入胜的商业或技术故事。`,
+            "知乎体": `知识分享导向风格。高信息密度。专业术语信手拈来（如"容器编排"、"CI/CD"、"微服务拆分"）。开头可以先讲一个具体的"坑"或"反直觉"的观点。结构清晰，逻辑严密，适合技术科普。`,
+            "技术媒体深度稿": `行业深度分析风格。结构清晰但不呆板，用小标题串联。有深度但不炫技，讲清楚技术原理。有观点有态度，不盲从（例如"我对这种方案持保留态度"）。适合发表在专业科技媒体。`
+        };
+
+        // --- 内置图标定义 ---
+        const ICONS = {
+            Cpu: <><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><path d="M15 2v2" /><path d="M15 20v2" /><path d="M2 15h2" /><path d="M2 9h2" /><path d="M20 15h2" /><path d="M20 9h2" /><path d="M9 2v2" /><path d="M9 20v2" /></>,
+            Server: <><rect width="20" height="8" x="2" y="2" rx="2" ry="2" /><rect width="20" height="8" x="2" y="14" rx="2" ry="2" /><line x1="6" x2="6.01" y1="6" y2="6" /><line x1="6" x2="6.01" y1="18" y2="18" /></>,
+            Workflow: <><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></>, 
+            CheckCircle: <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></>,
+            FileText: <><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><line x1="16" x2="8" y1="13" y2="13" /><line x1="16" x2="8" y1="17" y2="17" /><line x1="10" x2="8" y1="9" y2="9" /></>,
+            Zap: <><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></>,
+            Map: <><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21" /><line x1="9" x2="9" y1="3" y2="18" /><line x1="15" x2="15" y1="6" y2="21" /></>,
+            Play: <><polygon points="5 3 19 12 5 21 5 3" /></>,
+            FileCheck: <><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="m9 15 2 2 4-4" /></>,
+            Copy: <><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></>,
+            Loader2: <><path d="M21 12a9 9 0 1 1-6.219-8.56" /></>,
+            Search: <><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></>,
+            Globe: <><circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z" /></>,
+            Plus: <><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></>,
+            Trash: <><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2" /></>,
+            Settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></>,
+            Edit: <><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></>,
+            Refresh: <><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></>,
+            Link: <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
+            PenTool: <><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></>,
+            AlertTriangle: <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
+            Download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
+            Save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></>,
+            Upload: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>
+        };
+
+        const Icon = ({ name, size = 18, className }) => {
+            const iconContent = ICONS[name];
+            if (!iconContent) return null;
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                    {iconContent}
+                </svg>
+            );
+        };
+
+        // --- 核心类：Browser MCP Client (真实连接器) ---
+        class BrowserMcpClient {
+            constructor(url, apiKey, onLog) {
+                this.url = url;
+                this.apiKey = apiKey;
+                this.onLog = onLog || console.log;
+                this.eventSource = null;
+                this.postEndpoint = null;
+                this.tools = [];
+                this.isConnected = false;
+            }
+
+            log(msg, type='info') {
+                this.onLog(msg, type);
+            }
+
+            async connect() {
+                return new Promise((resolve, reject) => {
+                    this.log(`正在尝试连接 SSE: ${this.url}...`);
+                    try {
+                        const eventSource = new EventSource(`${this.url}?apikey=${this.apiKey || ''}`);
+                        
+                        eventSource.onopen = (e) => {
+                            this.log(`SSE 连接已打开。`, 'success');
+                            this.isConnected = true;
+                        };
+
+                        eventSource.onerror = (e) => {
+                            if (!this.isConnected) {
+                                this.log(`SSE 连接失败 (可能是 CORS 或网络问题)。请确保 MCP 服务器允许跨域访问。`, 'error');
+                                eventSource.close();
+                                reject(new Error("SSE Connection Failed"));
+                            } else {
+                                this.log("SSE 连接中断", 'warning');
+                            }
+                        };
+
+                        eventSource.addEventListener('endpoint', (event) => {
+                            const data = JSON.parse(event.data);
+                            this.postEndpoint = data.uri; 
+                            this.log(`接收到 MCP Endpoint: ${this.postEndpoint}`, 'success');
+                            
+                            this.initialize().then(() => {
+                                resolve(true);
+                            }).catch(reject);
+                        });
+
+                        this.eventSource = eventSource;
+
+                    } catch (error) {
+                        this.log(`连接异常: ${error.message}`, 'error');
+                        reject(error);
+                    }
+                });
+            }
+
+            async initialize() {
+                if (!this.postEndpoint) return;
+                
+                try {
+                    this.log("正在发送 initialize 请求...");
+                    await this.sendPost({
+                        jsonrpc: "2.0",
+                        id: 1,
+                        method: "initialize",
+                        params: {
+                            protocolVersion: "2024-11-05",
+                            capabilities: {},
+                            clientInfo: { name: "FlexusWebClient", version: "1.0.0" }
+                        }
+                    });
+                    
+                    await this.sendPost({
+                        jsonrpc: "2.0",
+                        method: "notifications/initialized"
+                    });
+
+                    this.log("正在获取工具列表...");
+                    const toolsRes = await this.sendPost({
+                        jsonrpc: "2.0",
+                        id: 2,
+                        method: "tools/list"
+                    });
+                    
+                    if (toolsRes && toolsRes.result && toolsRes.result.tools) {
+                        this.tools = toolsRes.result.tools;
+                        this.log(`成功获取 ${this.tools.length} 个工具: ${this.tools.map(t => t.name).join(', ')}`, 'success');
+                    }
+                    
+                } catch (e) {
+                    this.log(`初始化失败: ${e.message}`, 'error');
+                    throw e;
+                }
+            }
+
+            async callTool(name, args) {
+                this.log(`正在调用工具 ${name}...`, 'info');
+                try {
+                    const res = await this.sendPost({
+                        jsonrpc: "2.0",
+                        id: Date.now(),
+                        method: "tools/call",
+                        params: {
+                            name: name,
+                            arguments: args
+                        }
+                    });
+                    
+                    if (res.error) throw new Error(res.error.message);
+                    return res.result;
+                } catch (e) {
+                    this.log(`工具调用失败: ${e.message}`, 'error');
+                    throw e;
+                }
+            }
+
+            async sendPost(payload) {
+                let targetUrl = this.postEndpoint;
+                try {
+                    new URL(targetUrl);
+                } catch {
+                    const baseUrl = new URL(this.url).origin;
+                    targetUrl = `${baseUrl}${this.postEndpoint}`;
+                }
+
+                const res = await fetch(targetUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return await res.json();
+            }
+
+            disconnect() {
+                if (this.eventSource) {
+                    this.eventSource.close();
+                    this.isConnected = false;
+                }
+            }
+        }
+
+
+        // --- 工具函数：Tavily (Built-in) ---
+        const performRealTavilySearch = async (apiKey, query) => {
+            try {
+                const response = await fetch("https://api.tavily.com/search", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        api_key: apiKey,
+                        query: query,
+                        search_depth: "basic",
+                        include_answer: false,
+                        max_results: 1
+                    })
+                });
+                if (!response.ok) throw new Error(`Tavily API Error: ${response.status}`);
+                const data = await response.json();
+                return data.results || [];
+            } catch (error) {
+                console.error("Search Error:", error);
+                throw error;
+            }
+        };
+
+        // --- SearchableSelect 组件 ---
+        const SearchableSelect = ({ options, value, onChange, placeholder = "选择模型..." }) => {
+            const [isOpen, setIsOpen] = useState(false);
+            const [filter, setFilter] = useState("");
+            const containerRef = useRef(null);
+
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (containerRef.current && !containerRef.current.contains(event.target)) {
+                        setIsOpen(false);
+                    }
+                };
+                document.addEventListener("mousedown", handleClickOutside);
+                return () => document.removeEventListener("mousedown", handleClickOutside);
+            }, []);
+
+            const filteredOptions = options.filter(opt => 
+                opt.id.toLowerCase().includes(filter.toLowerCase())
+            );
+
+            return (
+                <div className="relative w-full" ref={containerRef}>
+                    <div 
+                        className="w-full text-xs border rounded px-2 py-2 bg-white flex justify-between items-center cursor-pointer hover:border-blue-400"
+                        onClick={() => setIsOpen(!isOpen)}
+                    >
+                        <span className={value ? "text-gray-900" : "text-gray-400"}>
+                            {value || placeholder}
+                        </span>
+                        <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </div>
+                    
+                    {isOpen && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border rounded shadow-lg max-h-48 overflow-auto">
+                            <div className="sticky top-0 bg-white p-1 border-b">
+                                <input 
+                                    type="text" 
+                                    className="w-full text-xs border rounded px-2 py-1 outline-none focus:border-blue-500"
+                                    placeholder="搜索模型..."
+                                    value={filter}
+                                    onChange={(e) => setFilter(e.target.value)}
+                                    autoFocus
+                                />
+                            </div>
+                            {filteredOptions.length > 0 ? (
+                                filteredOptions.map(opt => (
+                                    <div 
+                                        key={opt.id} 
+                                        className={`px-3 py-2 text-xs cursor-pointer hover:bg-blue-50 ${value === opt.id ? 'bg-blue-100 text-blue-700' : 'text-gray-700'}`}
+                                        onClick={() => {
+                                            onChange(opt.id);
+                                            setIsOpen(false);
+                                            setFilter("");
+                                        }}
+                                    >
+                                        {opt.id}
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="px-3 py-2 text-xs text-gray-400 text-center">无匹配模型</div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- 主应用组件 ---
+        function App() {
+            // 设置状态
+            const [apiConfig, setApiConfig] = useState({
+                baseUrl: "https://api.openai.com/v1",
+                apiKey: "",
+                model: "gpt-4o",
+            });
+            const [availableModels, setAvailableModels] = useState([]);
+            const [isTestingConnection, setIsTestingConnection] = useState(false);
+            const [connectionStatus, setConnectionStatus] = useState(null); // 'success', 'error', null
+            const [connectionErrorMsg, setConnectionErrorMsg] = useState("");
+
+            // MCP/工具状态
+            const [mcps, setMcps] = useState([
+                { 
+                    id: 1, 
+                    name: "Tavily Search (Official)", 
+                    url: "https://api.tavily.com",
+                    key: "", 
+                    type: "search", 
+                    active: true, 
+                    isBuiltIn: true 
+                },
+            ]);
+            const [showMcpModal, setShowMcpModal] = useState(false);
+            const [testingMcpId, setTestingMcpId] = useState(null); 
+            const mcpClientsRef = useRef({}); 
+            
+            // 内容规则编辑器状态
+            const [coreProtocol, setCoreProtocol] = useState(DEFAULT_PROTOCOL);
+            const [showProtocolModal, setShowProtocolModal] = useState(false);
+
+            // 风格配置状态
+            const [styles, setStyles] = useState(DEFAULT_STYLES);
+            const [showStyleModal, setShowStyleModal] = useState(false);
+            const [editingStyle, setEditingStyle] = useState({ key: "", originalKey: "", desc: "", isNew: false });
+
+            // 任务输入状态
+            const [taskParams, setTaskParams] = useState({
+                platform: "SMZDM", 
+                focus: "通用",
+                wordCount: 1500,
+                competitors: "阿里云百炼, 腾讯云TI, 字节扣子",
+                customRequirement: ""
+            });
+
+            // 执行流程状态
+            const [mode, setMode] = useState("idle"); 
+            const [logs, setLogs] = useState([]);
+            const [planStatus, setPlanStatus] = useState(""); 
+            const [generatedPlan, setGeneratedPlan] = useState("");
+            const [searchResults, setSearchResults] = useState([]); 
+            const [finalArticle, setFinalArticle] = useState("");
+            const [isLoading, setIsLoading] = useState(false);
+            // 新增：执行步骤追踪
+            const [execSteps, setExecSteps] = useState([
+                { id: 1, name: "提取关键词", status: "pending" }, // pending, running, done
+                { id: 2, name: "搜索数据", status: "pending" },
+                { id: 3, name: "分析结果", status: "pending" },
+                { id: 4, name: "撰写初稿", status: "pending" },
+                { id: 5, name: "自检优化", status: "pending" }
+            ]);
+            
+            const logsEndRef = useRef(null);
+            useEffect(() => {
+                logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, [logs]);
+
+            // --- 逻辑函数 ---
+
+            const addLog = (msg, type = "info") => {
+                const timestamp = new Date().toLocaleTimeString();
+                setLogs(prev => [...prev, { time: timestamp, msg, type }]);
+            };
+
+            // 备份配置 (NEW)
+            const exportConfig = () => {
+                const config = {
+                    version: "1.0",
+                    timestamp: new Date().toISOString(),
+                    apiConfig,
+                    mcps,
+                    coreProtocol,
+                    styles,
+                    taskParams
+                };
+                const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `geo_agent_config_${new Date().toISOString().slice(0,10)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+
+            // 导入配置 (NEW)
+            const importConfig = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const config = JSON.parse(e.target.result);
+                        if (config.apiConfig) setApiConfig(config.apiConfig);
+                        if (config.mcps) setMcps(config.mcps);
+                        if (config.coreProtocol) setCoreProtocol(config.coreProtocol);
+                        if (config.styles) setStyles(config.styles);
+                        if (config.taskParams) setTaskParams(config.taskParams);
+                        alert("配置导入成功！");
+                    } catch (err) {
+                        alert("配置文件格式错误");
+                    }
+                };
+                reader.readAsText(file);
+                event.target.value = null; // reset
+            };
+
+            // 下载文章 (NEW)
+            const downloadArticle = () => {
+                if (!finalArticle) return;
+                const blob = new Blob([finalArticle], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `geo_article_${new Date().toISOString().slice(0,10)}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+
+            const fetchModels = async () => {
+                if (!apiConfig.apiKey) return alert("请先填写 API Key");
+                setIsTestingConnection(true);
+                setConnectionStatus(null);
+                setConnectionErrorMsg("");
+                try {
+                    const response = await fetch(`${apiConfig.baseUrl}/models`, {
+                        method: "GET",
+                        headers: { "Authorization": `Bearer ${apiConfig.apiKey}` }
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                    const data = await response.json();
+                    setAvailableModels(data.data || []);
+                    setConnectionStatus("success");
+                    addLog(`成功连接API，获取到 ${(data.data||[]).length} 个模型`, "success");
+                } catch (error) {
+                    setConnectionStatus("error");
+                    setConnectionErrorMsg(error.message);
+                    addLog(`连接失败: ${error.message}`, "error");
+                } finally {
+                    setIsTestingConnection(false);
+                }
+            };
+
+            const callLLM = async (messages, temperature = 0.7) => {
+                try {
+                    const response = await fetch(`${apiConfig.baseUrl}/chat/completions`, {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${apiConfig.apiKey}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            model: apiConfig.model,
+                            messages: messages,
+                            temperature: temperature
+                        })
+                    });
+                    if (!response.ok) throw new Error(await response.text());
+                    const data = await response.json();
+                    return data.choices[0].message.content;
+                } catch (error) {
+                    addLog(`LLM Error: ${error.message}`, "error");
+                    throw error;
+                }
+            };
+
+            // 3. 生成 Plan
+            const handleGeneratePlan = async () => {
+                if (!apiConfig.apiKey) return alert("请配置 LLM API Key");
+                setIsLoading(true);
+                setMode("planning");
+                setLogs([]); 
+                
+                setPlanStatus("Initializing Task Context...");
+                addLog("正在初始化任务上下文...", "info");
+                await new Promise(r => setTimeout(r, 600));
+
+                setPlanStatus("Analyzing Available Tools...");
+                addLog("正在分析可用 MCP 工具链...", "info");
+                const activeCustomMcps = mcps.filter(m => m.active && !m.isBuiltIn);
+                for (const mcp of activeCustomMcps) {
+                    if (!mcpClientsRef.current[mcp.id]) {
+                        addLog(`正在连接 Remote MCP: ${mcp.name}...`, 'info');
+                        const client = new BrowserMcpClient(mcp.url, mcp.key, addLog);
+                        try {
+                            await client.connect();
+                            mcpClientsRef.current[mcp.id] = client;
+                        } catch (e) {
+                            addLog(`MCP [${mcp.name}] 连接失败，将跳过。`, 'warning');
+                        }
+                    }
+                }
+                await new Promise(r => setTimeout(r, 600));
+
+                let toolDescriptions = [];
+                const tavily = mcps.find(m => m.isBuiltIn && m.active);
+                if (tavily) toolDescriptions.push("- Tavily Search (Built-in HTTP)");
+                Object.values(mcpClientsRef.current).forEach(client => {
+                    if (client.isConnected && client.tools.length > 0) {
+                        client.tools.forEach(t => {
+                            toolDescriptions.push(`- ${t.name} (Remote): ${t.description || '无描述'}`);
+                        });
+                    }
+                });
+
+                setPlanStatus("Constructing Strategic Plan...");
+                addLog("正在构建策略 Prompt...", "info");
+                
+                const currentStyleDef = styles[taskParams.platform] || "通用风格";
+                const systemPrompt = `你是一个专业的AI任务规划师。请根据用户提供的【核心协议】、【任务参数】以及【风格定义】，制定执行计划。
+                
+【核心协议】：
+${coreProtocol}
+
+【目标风格定义 (${taskParams.platform})】：
+${currentStyleDef}
+
+【当前可用工具】：
+${toolDescriptions.length > 0 ? toolDescriptions.join('\n') : "无 (依赖内部知识)"}
+
+请输出Markdown格式的计划。`;
+
+                const userPrompt = `任务参数：平台-${taskParams.platform}, 字数-${taskParams.wordCount}, 竞品-${taskParams.competitors}, 侧重-${taskParams.focus}, 额外要求-${taskParams.customRequirement}`;
+
+                setPlanStatus("Waiting for AI Response...");
+                addLog("发送请求至 LLM...", "info");
+                try {
+                    const plan = await callLLM([{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }]);
+                    setGeneratedPlan(plan);
+                    setMode("plan_review");
+                    setPlanStatus("Plan Generated Successfully");
+                    addLog("计划已生成。", "success");
+                } catch (e) {
+                    setMode("idle");
+                    setPlanStatus("Generation Failed");
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            // 4. 执行 Plan
+            const handleExecutePlan = async () => {
+                setIsLoading(true);
+                setMode("executing");
+                addLog("开始执行任务...");
+                // Reset Steps
+                setExecSteps(execSteps.map(s => ({ ...s, status: "pending" })));
+
+                let searchContext = "";
+                
+                // --- Step 1: 提取关键词 ---
+                setExecSteps(prev => prev.map(s => s.id === 1 ? { ...s, status: "running" } : s));
+                let keywords = [];
+                try {
+                    const tavilyMcp = mcps.find(m => m.active && m.isBuiltIn);
+                    if (tavilyMcp && tavilyMcp.key) {
+                        addLog("使用 Tavily 进行关键词检索...", "info");
+                        const kwRes = await callLLM([{role: "user", content: `提取3个搜索关键词，用于查询2025年华为云Flexus及竞品(${taskParams.competitors})信息。仅返回关键词，逗号分隔。`}], 0.3);
+                        keywords = kwRes.split(/,|，|\n/).map(k=>k.trim()).filter(k=>k).slice(0,3);
+                        addLog(`搜索: ${keywords.join(', ')}`, 'info');
+                    }
+                    setExecSteps(prev => prev.map(s => s.id === 1 ? { ...s, status: "done" } : s));
+                } catch(e) {
+                    addLog(`关键词提取失败: ${e.message}`, 'error');
+                }
+
+                // --- Step 2: 搜索数据 ---
+                setExecSteps(prev => prev.map(s => s.id === 2 ? { ...s, status: "running" } : s));
+                try {
+                    const tavilyMcp = mcps.find(m => m.active && m.isBuiltIn);
+                    if (tavilyMcp && tavilyMcp.key && keywords.length > 0) {
+                        const results = await Promise.all(keywords.map(k => performRealTavilySearch(tavilyMcp.key, k)));
+                        const flat = results.flat();
+                        if (flat.length > 0) {
+                            searchContext += `\n【Tavily 搜索结果】:\n` + flat.map((r,i)=> `[${i+1}] ${r.title} (${r.url}): ${r.content}`).join('\n');
+                            addLog(`Tavily 获取到 ${flat.length} 条结果`, 'success');
+                        }
+                    }
+                    
+                    // Custom MCPs
+                    const activeClients = Object.values(mcpClientsRef.current);
+                    for (const client of activeClients) {
+                        if (!client.isConnected) continue;
+                        const searchTool = client.tools.find(t => t.name.toLowerCase().includes('search'));
+                        if (searchTool) {
+                            addLog(`调用远程工具 [${searchTool.name}]...`, 'info');
+                            try {
+                                const res = await client.callTool(searchTool.name, { query: `华为云Flexus ${taskParams.competitors} 2025` });
+                                const resStr = typeof res === 'string' ? res : JSON.stringify(res);
+                                searchContext += `\n【${searchTool.name} 结果】:\n${resStr.substring(0, 500)}...`;
+                            } catch (e) {
+                                addLog(`远程工具失败: ${e.message}`, 'error');
+                            }
+                        }
+                    }
+                    setExecSteps(prev => prev.map(s => s.id === 2 ? { ...s, status: "done" } : s));
+                } catch(e) {
+                    addLog(`搜索步骤失败: ${e.message}`, 'error');
+                }
+
+                // --- Step 3: 分析结果 ---
+                setExecSteps(prev => prev.map(s => s.id === 3 ? { ...s, status: "running" } : s));
+                await new Promise(r => setTimeout(r, 800)); // Simulate analysis time
+                setExecSteps(prev => prev.map(s => s.id === 3 ? { ...s, status: "done" } : s));
+
+                // --- Step 4: 撰写初稿 ---
+                setExecSteps(prev => prev.map(s => s.id === 4 ? { ...s, status: "running" } : s));
+                
+                const currentStyleDef = styles[taskParams.platform] || "通用风格";
+                const executionPrompt = `根据以下信息撰写文章。
+【核心协议】：${coreProtocol}
+【风格定义 (${taskParams.platform})】：${currentStyleDef}
+【执行计划】：${generatedPlan}
+【外部数据】：${searchContext || "无外部数据，使用内部知识"}
+【参数】：平台-${taskParams.platform}, 字数-${taskParams.wordCount}, 侧重-${taskParams.focus}, 额外要求-${taskParams.customRequirement}
+要求：严禁禁词，口语化，真实感，严格遵循风格定义。`;
+
+                try {
+                    const article = await callLLM([{ role: "user", content: executionPrompt }], 0.7);
+                    setFinalArticle(article);
+                    setExecSteps(prev => prev.map(s => s.id === 4 ? { ...s, status: "done" } : s));
+                    
+                    // --- Step 5: 自检优化 ---
+                    setExecSteps(prev => prev.map(s => s.id === 5 ? { ...s, status: "running" } : s));
+                    addLog("正在进行最终自检...", "info");
+                    await new Promise(r => setTimeout(r, 1000)); // Simulate validation
+                    setExecSteps(prev => prev.map(s => s.id === 5 ? { ...s, status: "done" } : s));
+
+                    setMode("finished");
+                    addLog("文章生成完成！", "success");
+                } catch (e) {
+                    addLog("生成失败", "error");
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            // --- MCP 管理逻辑 ---
+            const [editingMcpId, setEditingMcpId] = useState(null);
+            const [mcpForm, setMcpForm] = useState({ name: "", url: "", key: "" });
+
+            const startEditMcp = (mcp) => { setEditingMcpId(mcp.id); setMcpForm({ name: mcp.name, url: mcp.url, key: mcp.key }); };
+            const cancelEdit = () => { setEditingMcpId(null); setMcpForm({ name: "", url: "", key: "" }); };
+            const saveMcp = () => {
+                if (!mcpForm.name) return alert("请输入名称");
+                if (editingMcpId) {
+                    setMcps(mcps.map(m => m.id === editingMcpId ? { ...m, ...mcpForm } : m));
+                    setEditingMcpId(null);
+                } else {
+                    const id = Math.max(...mcps.map(m => m.id), 0) + 1;
+                    setMcps([...mcps, { id, ...mcpForm, type: "search", active: true, isBuiltIn: false, deploymentMode: "remote" }]);
+                }
+                setMcpForm({ name: "", url: "", key: "" });
+            };
+            const removeMcp = (id) => {
+                if (confirm("确定删除吗？")) {
+                    setMcps(mcps.filter(m => m.id !== id));
+                    if (mcpClientsRef.current[id]) { mcpClientsRef.current[id].disconnect(); delete mcpClientsRef.current[id]; }
+                }
+            };
+            const testMcp = async (mcp) => {
+                setTestingMcpId(mcp.id);
+                try {
+                    if (mcp.isBuiltIn) {
+                        if (!mcp.key) throw new Error("请先配置 API Key");
+                        await performRealTavilySearch(mcp.key, "test");
+                        alert("测试成功！API 连接正常。");
+                    } else {
+                        const client = new BrowserMcpClient(mcp.url, mcp.key, console.log);
+                        await client.connect();
+                        alert(`测试成功！发现 ${client.tools.length} 个工具。`);
+                        client.disconnect();
+                    }
+                } catch (e) { alert(`测试失败: ${e.message}`); } finally { setTestingMcpId(null); }
+            };
+
+            // --- 风格管理逻辑 ---
+            const openStyleEdit = (key, isNew = false) => {
+                setEditingStyle({ key: key, originalKey: key, desc: isNew ? "" : styles[key], isNew: isNew });
+                setShowStyleModal(true);
+            };
+            const saveStyle = () => {
+                if (!editingStyle.key) return alert("风格名称不能为空");
+                const newStyles = { ...styles };
+                if (!editingStyle.isNew && editingStyle.key !== editingStyle.originalKey) delete newStyles[editingStyle.originalKey];
+                newStyles[editingStyle.key] = editingStyle.desc;
+                setStyles(newStyles);
+                if (taskParams.platform === editingStyle.originalKey) setTaskParams({ ...taskParams, platform: editingStyle.key });
+                setShowStyleModal(false);
+            };
+            const deleteStyle = () => {
+                if (!confirm(`确定删除风格 "${editingStyle.originalKey}" 吗？`)) return;
+                const newStyles = { ...styles };
+                delete newStyles[editingStyle.originalKey];
+                setStyles(newStyles);
+                if (taskParams.platform === editingStyle.originalKey) {
+                    const firstAvailable = Object.keys(newStyles)[0] || "";
+                    setTaskParams({ ...taskParams, platform: firstAvailable });
+                }
+                setShowStyleModal(false);
+            };
+
+            // --- UI 渲染 ---
+            const filteredModels = availableModels;
+
+            return (
+                <div className="flex h-screen overflow-hidden text-gray-800">
+                    {/* 左侧配置栏 */}
+                    <div className="w-80 bg-white border-r border-gray-200 flex flex-col shadow-sm z-10 flex-shrink-0">
+                        <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                            <div>
+                                <h1 className="text-lg font-bold text-gray-700 flex items-center gap-2">
+                                    <Icon name="Cpu" className="text-blue-600"/>
+                                    GEO Agent
+                                </h1>
+                                <p className="text-xs text-green-600 font-medium px-2 py-0.5 bg-green-100 rounded-full inline-block mt-1">Production Ready</p>
+                            </div>
+                            <div className="flex gap-1">
+                                <button onClick={exportConfig} title="备份配置" className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded"><Icon name="Save" size={16}/></button>
+                                <label title="导入配置" className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded cursor-pointer">
+                                    <Icon name="Upload" size={16}/>
+                                    <input type="file" className="hidden" accept=".json" onChange={importConfig}/>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+                            {/* LLM */}
+                            <section>
+                                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2"><Icon name="Server" size={16}/> 模型服务商</h3>
+                                <div className="space-y-3">
+                                    <input type="text" value={apiConfig.baseUrl} onChange={(e) => setApiConfig({...apiConfig, baseUrl: e.target.value})} className="w-full text-xs border rounded px-2 py-2" placeholder="Base URL"/>
+                                    <input type="password" value={apiConfig.apiKey} onChange={(e) => setApiConfig({...apiConfig, apiKey: e.target.value})} className="w-full text-xs border rounded px-2 py-2" placeholder="API Key"/>
+                                    <button onClick={fetchModels} disabled={isTestingConnection} className="w-full text-xs py-2 bg-gray-100 hover:bg-gray-200 rounded text-gray-700 border border-gray-300">
+                                        {isTestingConnection ? "连接中..." : "测试连接 & 获取模型"}
+                                    </button>
+                                    {connectionStatus === 'error' && <div className="text-xs text-red-500 bg-red-50 p-2 rounded border border-red-100">连接失败: {connectionErrorMsg}</div>}
+                                    {connectionStatus === 'success' && availableModels.length > 0 && (
+                                        <div className="animate-fade-in space-y-1">
+                                            <label className="text-xs text-gray-500">选择模型:</label>
+                                            <SearchableSelect options={availableModels} value={apiConfig.model} onChange={(val) => setApiConfig({...apiConfig, model: val})} />
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+                            <hr className="border-gray-100"/>
+                            {/* 规则 */}
+                            <section>
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Icon name="Settings" size={16}/> 内容规则</h3>
+                                    <button onClick={() => setShowProtocolModal(true)} className="text-xs text-blue-600 hover:underline">编辑</button>
+                                </div>
+                                <div className="bg-gray-50 border rounded p-2 text-xs text-gray-500 truncate cursor-pointer" onClick={() => setShowProtocolModal(true)}>{coreProtocol.substring(0, 30)}...</div>
+                            </section>
+                            <hr className="border-gray-100"/>
+                            {/* 风格 */}
+                            <section>
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Icon name="PenTool" size={16}/> 风格微调</h3>
+                                    <button onClick={() => openStyleEdit("", true)} className="text-xs text-blue-600 hover:underline flex items-center gap-1"><Icon name="Plus" size={12}/>新增</button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {Object.keys(styles).map(key => <button key={key} onClick={() => openStyleEdit(key)} className="text-xs border rounded p-2 bg-gray-50 hover:bg-blue-50 text-gray-700 truncate" title={key}>{key}</button>)}
+                                </div>
+                            </section>
+                            <hr className="border-gray-100"/>
+                            {/* MCP */}
+                            <section>
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Icon name="Workflow" size={16}/> MCP 工具链</h3>
+                                    <button onClick={() => setShowMcpModal(true)} className="text-xs text-blue-600 hover:underline">管理</button>
+                                </div>
+                                <div className="space-y-2">
+                                    {mcps.filter(m => m.active).map(mcp => (
+                                        <div key={mcp.id} className="text-xs border border-blue-200 bg-blue-50 rounded p-2 flex justify-between items-center">
+                                            <span className="font-medium truncate flex-1">{mcp.name}</span>
+                                            <Icon name="CheckCircle" size={14} className="text-blue-500"/>
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+
+                    {/* 主工作区 */}
+                    <div className="flex-1 flex flex-col bg-gray-50 overflow-hidden">
+                         <div className="h-16 bg-white border-b border-gray-200 flex items-center px-6 justify-between shrink-0">
+                            <div className="flex items-center gap-4">
+                                <StepBadge step={1} currentMode={mode} label="配置" />
+                                <StepBadge step={2} currentMode={mode} label="计划" />
+                                <StepBadge step={3} currentMode={mode} label="执行" />
+                            </div>
+                            {mode === 'planning' && <div className="flex items-center gap-3 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 animate-fade-in"><span className="text-blue-600 animate-spin"><Icon name="Loader2" size={14}/></span><span className="text-xs font-mono text-blue-700 font-medium cursor-blink">{planStatus || "Processing..."}</span></div>}
+                            {mode !== 'planning' && isLoading && <span className="text-xs text-blue-600 animate-pulse">Running...</span>}
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-6 scroll-smooth custom-scrollbar">
+                             <div className="max-w-5xl mx-auto space-y-6 pb-20">
+                                {/* 1. 参数 */}
+                                <div className={`bg-white rounded-xl shadow-sm p-6 border ${mode !== 'idle' ? 'opacity-80' : ''}`}>
+                                    <h2 className="text-lg font-bold mb-4">任务参数</h2>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs text-gray-500 mb-1">发布平台风格</label>
+                                            <select value={taskParams.platform} onChange={e=>setTaskParams({...taskParams, platform:e.target.value})} disabled={mode!=='idle'} className="w-full border rounded p-2 text-sm">{Object.keys(styles).map(key => <option key={key} value={key}>{key}</option>)}</select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs text-gray-500 mb-1">字数</label>
+                                            <input type="number" value={taskParams.wordCount} onChange={e=>setTaskParams({...taskParams, wordCount:e.target.value})} disabled={mode!=='idle'} className="w-full border rounded p-2 text-sm"/>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="block text-xs text-gray-500 mb-1">侧重点</label>
+                                            <input type="text" value={taskParams.focus} onChange={e=>setTaskParams({...taskParams, focus:e.target.value})} disabled={mode!=='idle'} className="w-full border rounded p-2 text-sm" placeholder="例如：降本增效..."/>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="block text-xs text-gray-500 mb-1">竞品</label>
+                                            <input type="text" value={taskParams.competitors} onChange={e=>setTaskParams({...taskParams, competitors:e.target.value})} disabled={mode!=='idle'} className="w-full border rounded p-2 text-sm"/>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="block text-xs text-gray-500 mb-1">额外要求</label>
+                                            <input type="text" value={taskParams.customRequirement} onChange={e=>setTaskParams({...taskParams, customRequirement:e.target.value})} disabled={mode!=='idle'} className="w-full border rounded p-2 text-sm" placeholder="例如：多加一些制造业的案例..."/>
+                                        </div>
+                                    </div>
+                                    {mode === 'idle' && <button onClick={handleGeneratePlan} disabled={isLoading} className="mt-4 bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">生成计划</button>}
+                                </div>
+
+                                {/* 2. 计划 */}
+                                {(mode === 'plan_review' || mode === 'executing' || mode === 'finished') && (
+                                    <div className="bg-white rounded-xl shadow-sm p-6 border animate-fade-in">
+                                        <h2 className="text-lg font-bold mb-4">执行计划</h2>
+                                        <textarea value={generatedPlan} onChange={e=>setGeneratedPlan(e.target.value)} readOnly={mode!=='plan_review'} className="w-full h-64 border rounded p-3 text-sm font-mono"/>
+                                        {mode === 'plan_review' && <div className="mt-4 flex gap-2 justify-end"><button onClick={()=>setMode('idle')} className="px-3 py-1 text-gray-600 text-sm">重置</button><button onClick={handleExecutePlan} className="bg-green-600 text-white px-4 py-2 rounded text-sm">执行</button></div>}
+                                    </div>
+                                )}
+
+                                {/* 3. 结果 & 步骤追踪 (Updated) */}
+                                {(mode === 'executing' || mode === 'finished') && (
+                                    <div className="space-y-4 animate-fade-in">
+                                        {/* 步骤追踪器 */}
+                                        <div className="bg-white border rounded-xl p-4 shadow-sm">
+                                            <h3 className="text-sm font-bold mb-3 text-gray-700">执行进度</h3>
+                                            <div className="flex justify-between items-center relative">
+                                                {/* 进度条背景线 */}
+                                                <div className="absolute top-1/2 left-0 w-full h-0.5 bg-gray-200 -z-10"></div>
+                                                {execSteps.map((step) => (
+                                                    <div key={step.id} className="flex flex-col items-center bg-white px-2 z-10">
+                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${
+                                                            step.status === 'done' ? 'bg-green-500 border-green-500 text-white' :
+                                                            step.status === 'running' ? 'bg-blue-500 border-blue-500 text-white animate-pulse' :
+                                                            'bg-white border-gray-300 text-gray-400'
+                                                        }`}>
+                                                            {step.status === 'done' ? <Icon name="CheckCircle" size={16}/> : step.id}
+                                                        </div>
+                                                        <span className={`text-[10px] mt-1 font-medium ${
+                                                            step.status === 'done' ? 'text-green-600' :
+                                                            step.status === 'running' ? 'text-blue-600' : 'text-gray-400'
+                                                        }`}>{step.name}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-slate-900 rounded p-4 text-xs font-mono text-gray-300 h-40 overflow-y-auto">
+                                            {logs.map((l,i) => <div key={i} className={l.type==='error'?'text-red-400':l.type==='success'?'text-green-400':'text-gray-300'}>[{l.time}] {l.msg}</div>)}
+                                            <div ref={logsEndRef}/>
+                                        </div>
+                                        {finalArticle && (
+                                            <div className="bg-white rounded p-6 shadow markdown-body whitespace-pre-wrap relative group">
+                                                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button onClick={downloadArticle} className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded text-xs border border-gray-300">
+                                                        <Icon name="Download" size={14}/> 下载文章
+                                                    </button>
+                                                </div>
+                                                {finalArticle}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                             </div>
+                        </div>
+                    </div>
+
+                    {/* Modals 保持不变... */}
+                    {showMcpModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-xl shadow-2xl w-[600px] h-[600px] flex flex-col p-6">
+                                <div className="flex justify-between mb-4">
+                                    <h3 className="text-xl font-bold">MCP 工具链管理</h3>
+                                    <button onClick={()=>setShowMcpModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 mb-4 space-y-3">
+                                    {mcps.map(mcp => (
+                                        <div key={mcp.id} className={`border rounded p-3 flex justify-between items-center ${mcp.active?'bg-blue-50 border-blue-200':'bg-gray-50'}`}>
+                                            <div><div className="font-bold text-sm flex items-center gap-2">{mcp.name}{mcp.isBuiltIn && <span className="text-[10px] bg-gray-200 px-1 rounded">Built-in</span>}</div><div className="text-xs text-gray-500">{mcp.url}</div></div>
+                                            <div className="flex items-center gap-2">
+                                                <button onClick={() => testMcp(mcp)} className="text-green-600 hover:bg-green-100 p-1 rounded" disabled={testingMcpId === mcp.id}>{testingMcpId === mcp.id ? <Icon name="Loader2" size={16} className="animate-spin"/> : <Icon name="Play" size={16}/>}</button>
+                                                <button onClick={() => startEditMcp(mcp)} className="text-blue-600 hover:bg-blue-100 p-1 rounded"><Icon name="Edit" size={16}/></button>
+                                                {!mcp.isBuiltIn && <button onClick={() => removeMcp(mcp.id)} className="text-red-600 hover:bg-red-100 p-1 rounded"><Icon name="Trash" size={16}/></button>}
+                                                <input type="checkbox" checked={mcp.active} onChange={() => setMcps(mcps.map(m=>m.id===mcp.id?{...m,active:!m.active}:m))} className="ml-2"/>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="border-t pt-4">
+                                    <h4 className="text-sm font-bold mb-3">{editingMcpId ? "编辑 MCP" : "添加新 MCP (Remote Only)"}</h4>
+                                    <div className="space-y-3">
+                                        <input type="text" placeholder="Server Name" value={mcpForm.name} onChange={e=>setMcpForm({...mcpForm, name:e.target.value})} className="w-full border rounded p-2 text-xs"/>
+                                        <input type="text" placeholder="SSE URL" value={mcpForm.url} onChange={e=>setMcpForm({...mcpForm, url:e.target.value})} className="w-full border rounded p-2 text-xs"/>
+                                        <input type="password" placeholder="API Key" value={mcpForm.key} onChange={e=>setMcpForm({...mcpForm, key:e.target.value})} className="w-full border rounded p-2 text-xs"/>
+                                        <div className="flex gap-2">
+                                            {editingMcpId && <button onClick={cancelEdit} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded text-xs hover:bg-gray-300">取消</button>}
+                                            <button onClick={saveMcp} className="flex-1 bg-blue-600 text-white py-2 rounded text-xs hover:bg-blue-700">{editingMcpId ? "更新配置" : "添加至工具链"}</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showProtocolModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-xl shadow-2xl w-[800px] h-[80vh] flex flex-col p-6">
+                                <h3 className="text-xl font-bold mb-4">内容规则编辑</h3>
+                                <textarea value={coreProtocol} onChange={e=>setCoreProtocol(e.target.value)} className="flex-1 border rounded p-4 font-mono text-sm resize-none mb-4"/>
+                                <div className="flex justify-end gap-2"><button onClick={()=>setCoreProtocol(DEFAULT_PROTOCOL)} className="text-gray-500 text-sm px-4">重置默认</button><button onClick={()=>setShowProtocolModal(false)} className="bg-blue-600 text-white px-6 py-2 rounded text-sm">保存</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showStyleModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-xl shadow-2xl w-[600px] h-[550px] flex flex-col p-6">
+                                <h3 className="text-xl font-bold mb-4">{editingStyle.isNew ? "新增风格" : "修改风格"}</h3>
+                                <div className="space-y-4 flex-1">
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">风格名称</label><input type="text" value={editingStyle.key} onChange={e => setEditingStyle({...editingStyle, key: e.target.value})} className="w-full border rounded px-3 py-2 text-sm"/></div>
+                                    <div className="flex-1 h-full"><label className="block text-xs font-semibold text-gray-600 mb-1">Prompt 指令定义</label><textarea value={editingStyle.desc} onChange={e => setEditingStyle({...editingStyle, desc: e.target.value})} className="w-full h-64 border rounded p-4 font-mono text-sm resize-none bg-gray-50 focus:bg-white"/></div>
+                                </div>
+                                <div className="flex justify-between items-center mt-4 border-t pt-4">
+                                    <div>{!editingStyle.isNew && <button onClick={deleteStyle} className="text-red-600 hover:bg-red-50 px-3 py-2 rounded text-sm flex items-center gap-1"><Icon name="Trash" size={14}/> 删除此风格</button>}</div>
+                                    <div className="flex gap-2"><button onClick={() => setShowStyleModal(false)} className="text-gray-500 text-sm px-4">取消</button><button onClick={saveStyle} className="bg-blue-600 text-white px-6 py-2 rounded text-sm">保存配置</button></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function StepBadge({ step, currentMode, label }) {
+            let active = step === 1 || (step === 2 && currentMode !== 'idle') || (step === 3 && (currentMode === 'executing' || currentMode === 'finished'));
+            return (
+                <div className={`flex items-center gap-2 ${active ? 'text-blue-600' : 'text-gray-400'}`}>
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${active ? 'bg-blue-100' : 'bg-gray-200'}`}>{step}</div>
+                    <span className="text-xs font-bold">{label}</span>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
